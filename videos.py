@@ -2,6 +2,8 @@ import sys
 import os
 from gurobipy import Model, GRB, GurobiError
 
+dataset_path = "C:/Users/trist/OneDrive/Documents/Cours/Gurobi/videos/datasets/trending_4000_10k.in"
+
 class Video:
     """Représente une vidéo (taille $s_v$)."""
     def __init__(self, id, size):
@@ -223,8 +225,6 @@ def solve_mip(data):
 if __name__ == "__main__":
     
     print("--- Lancement du script d'optimisation (Mode Interactif) ---")
-
-    dataset_path = input("Veuillez entrer le chemin complet du fichier dataset (ex: C:/data/example.in) : ")
     
     if not dataset_path:
         print("Erreur : Aucun chemin de dataset fourni. Arrêt du script.")
