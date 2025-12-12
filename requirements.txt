@@ -1,2 +1,2 @@
-"numpy" 
-"gurobipy" 
+numpy
+gurobipy
