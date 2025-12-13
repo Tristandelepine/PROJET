@@ -1,21 +1,22 @@
 import sys
 import os
+import urllib.request
 from gurobipy import Model, GRB, GurobiError
 
-dataset_path = "C:/Users/trist/OneDrive/Documents/Cours/Gurobi/videos/datasets/trending_4000_10k.in"
-
+DATASET_URL = "https://raw.githubusercontent.com/Tristandelepine/PROJET/main/trending_4000_10k.in"
+        
 class Video:
     """Représente une vidéo (taille $s_v$)."""
     def __init__(self, id, size):
         self.id = id
-        self.size = size 
+        self.size = size
         
 class Endpoint:
     """Représente un point d'accès client (latence $l_{e}^{D}$)."""
     def __init__(self, id, dc_latency, cache_connections):
         self.id = id
-        self.dc_latency = dc_latency 
-        self.cache_connections = cache_connections 
+        self.dc_latency = dc_latency
+        self.cache_connections = cache_connections
 
 class Request:
     """Représente un ensemble de requêtes ($n_r$) pour une vidéo ($v_r$) et un endpoint ($e_r$)."""
@@ -28,55 +29,67 @@ class Request:
 class ProblemData:
     """Conteneur pour toutes les données lues."""
     def __init__(self):
-        self.videos = {}       
-        self.endpoints = {}    
-        self.caches = {}       
-        self.requests = {}     
+        self.videos = {}
+        self.endpoints = {}
+        self.caches = {}
+        self.requests = {}
         self.cache_capacity = 0
 
-def read_data(filepath):
-    """Lit les données du fichier d'entrée (format Hash Code 2017) avec une limite de requêtes."""
-    print(f"--- Lecture du fichier de données : {filepath} ---")
+def read_data(source_path_or_url):
+    """Lit les données du fichier d'entrée (local) ou depuis une URL (distant)."""
+    print(f"--- Lecture de la source de données : {source_path_or_url} ---")
     data = ProblemData()
 
-    MAX_REQUESTS_TO_PROCESS = 5000 
+    MAX_REQUESTS_TO_PROCESS = 5000
     
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            V, E, R_total, C, X = map(int, f.readline().split())
-            
-            R_processed = min(R_total, MAX_REQUESTS_TO_PROCESS)
-            
-            data.cache_capacity = X
-            data.caches = {c_id: X for c_id in range(C)}
-            print(f"  > V: {V}, E: {E}, R: {R_total} (Limite fixée à {R_processed}), C: {C}, Capacité Cache (X): {X}")
+        if source_path_or_url.startswith('http'):
+            with urllib.request.urlopen(source_path_or_url) as response:
+                content = response.read().decode('utf-8')
+        else:
+            with open(source_path_or_url, 'r', encoding='utf-8') as f:
+                content = f.read()
 
-            sizes = list(map(int, f.readline().split()))
-            for v_id, size in enumerate(sizes):
-                data.videos[v_id] = Video(v_id, size)
-            print("  > Tailles des vidéos lues.")
+        lines = content.splitlines()
+        line_iter = iter(lines)
 
-            for e_id in range(E):
-                line = f.readline().split()
-                if not line: raise EOFError("Fin de fichier inattendue.")
-                dc_latency, nb_cache_conn = map(int, line)
+        V, E, R_total, C, X = map(int, next(line_iter).split())
+        
+        R_processed = min(R_total, MAX_REQUESTS_TO_PROCESS)
+        
+        data.cache_capacity = X
+        data.caches = {c_id: X for c_id in range(C)}
+        print(f"  > V: {V}, E: {E}, R: {R_total} (Limite fixée à {R_processed}), C: {C}, Capacité Cache (X): {X}")
 
-                cache_connections = {}
-                for _ in range(nb_cache_conn):
-                    c_id, c_latency = map(int, f.readline().split())
-                    cache_connections[c_id] = c_latency
+        sizes = list(map(int, next(line_iter).split()))
+        for v_id, size in enumerate(sizes):
+            data.videos[v_id] = Video(v_id, size)
+        print("  > Tailles des vidéos lues.")
+
+        for e_id in range(E):
+            line = next(line_iter).split()
+            if not line: raise EOFError("Fin de fichier inattendue.")
+            dc_latency, nb_cache_conn = map(int, line)
+
+            cache_connections = {}
+            for _ in range(nb_cache_conn):
+                c_id, c_latency = map(int, next(line_iter).split())
+                cache_connections[c_id] = c_latency
                 
-                data.endpoints[e_id] = Endpoint(e_id, dc_latency, cache_connections)
-            print(f"  > {E} Endpoints lus.")
+            data.endpoints[e_id] = Endpoint(e_id, dc_latency, cache_connections)
+        print(f"  > {E} Endpoints lus.")
 
-            for r_id in range(R_total):
-                v_id, e_id, count = map(int, f.readline().split())
+        for r_id in range(R_total):
+            v_id, e_id, count = map(int, next(line_iter).split())
+            
+            if r_id < R_processed:
+                data.requests[r_id] = Request(r_id, v_id, e_id, count)
                 
-                if r_id < R_processed:
-                    data.requests[r_id] = Request(r_id, v_id, e_id, count)
-                    
-            print(f"  > {len(data.requests)} Requêtes lues et traitées.")
+        print(f"  > {len(data.requests)} Requêtes lues et traitées.")
 
+    except urllib.error.URLError as e:
+        print(f"Erreur lors de la lecture de l'URL ({source_path_or_url}): {e.reason}")
+        sys.exit(1)
     except Exception as e:
         print(f"Erreur critique lors de la lecture des données : {e}")
         sys.exit(1)
@@ -195,9 +208,9 @@ def solve_mip(data):
         
         if model.SolCount == 0:
             if model.Status in [GRB.INFEASIBLE, GRB.INF_OR_UNBD]:
-                 print("\n  > Le modèle est infaisable ou non borné. Aucune solution trouvée.")
+                print("\n  > Le modèle est infaisable ou non borné. Aucune solution trouvée.")
             else:
-                 print(f"\n  > Le solveur a terminé avec le statut: {model.Status}. Aucune solution entière réalisable trouvée.")
+                print(f"\n  > Le solveur a terminé avec le statut: {model.Status}. Aucune solution entière réalisable trouvée.")
             return None
         
         elif model.Status == GRB.OPTIMAL:
@@ -226,11 +239,11 @@ if __name__ == "__main__":
     
     print("--- Lancement du script d'optimisation (Mode Interactif) ---")
     
-    if not dataset_path:
-        print("Erreur : Aucun chemin de dataset fourni. Arrêt du script.")
+    if not DATASET_URL:
+        print("Erreur : Aucune URL de dataset fournie. Arrêt du script.")
         sys.exit(1)
         
-    problem_data = read_data(dataset_path)
+    problem_data = read_data(DATASET_URL)
     
     result = solve_mip(problem_data)
     
